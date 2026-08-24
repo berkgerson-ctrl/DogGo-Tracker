@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
+<title>Dog-Go Tracker</title>
+
+<!-- Leaflet CDN (harici bağımlılık istisnası) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          violet:  { DEFAULT:'#6C5DD3', 2:'#5847B8', soft:'#F1EFFC' },
+          coral:   { DEFAULT:'#FF6584', dark:'#E14F6B', soft:'#FFE9EE' },
+          sky:     { DEFAULT:'#33C2E0', dark:'#1FA6C4', soft:'#E4F9FC' },
+          base:    '#F7F6FC',
+          mist:    '#ECEAF6',
+          ink:     '#241E38',
+          inkmut:  '#8D89A6'
+        },
+        fontFamily: {
+          display: ['ui-rounded','"SF Pro Rounded"','"Segoe UI Rounded"','system-ui','sans-serif'],
+          body: ['-apple-system','"Segoe UI"','system-ui','Roboto','sans-serif']
+        },
+        borderRadius: { card: '24px' },
+        boxShadow: { soft: '0 14px 32px -16px rgba(108,93,211,0.28)' }
+      }
+    }
+  }
+</script>
+
+<style>
+  html,body{ background:#EDEBF6; font-family: -apple-system,"Segoe UI",system-ui,Roboto,sans-serif; }
+  * { -webkit-tap-highlight-color: transparent; }
+  ::-webkit-scrollbar{ width:0; height:0; }
+  .font-display{ font-family: ui-rounded,"SF Pro Rounded","Segoe UI Rounded",system-ui,sans-serif; }
+  .tabular{ font-variant-numeric: tabular-nums; }
+
+  .card{
+    background:#FFFFFF; border-radius: 24px;
+    box-shadow: 0 14px 32px -18px rgba(108,93,211,0.24);
+    border: 1px solid #F0EEF9;
+  }
+
+  .app-shell{
+    max-width:480px; margin:0 auto; min-height:100vh;
+    background:#F7F6FC;
+    position:relative; overflow-x:hidden;
+    box-shadow: 0 0 60px rgba(36,30,56,0.10);
+  }
+
+  .screen{ display:none; }
+  .screen.active{ display:block; }
+
+  .sheet-overlay{
+    position:fixed; inset:0; background:rgba(36,30,56,0.45);
+    z-index:60; display:none; opacity:0; transition:opacity .25s ease;
+  }
+  .sheet-overlay.show{ display:block; opacity:1; }
+
+  .bottom-sheet{
+    position:fixed; left:50%; bottom:0; transform:translate(-50%,110%);
+    width:100%; max-width:480px; background:#FFFFFF;
+    border-radius:28px 28px 0 0; z-index:61; padding:10px 20px 28px;
+    transition: transform .32s cubic-bezier(.2,.9,.25,1);
+    box-shadow: 0 -10px 40px rgba(36,30,56,0.18);
+    max-height:88vh; overflow-y:auto;
+  }
+  .bottom-sheet.show{ transform:translate(-50%,0); }
+  .sheet-handle{ width:40px; height:5px; border-radius:99px; background:#E4E1F1; margin:6px auto 14px; }
+
+  .nav-pill{
+    -webkit-mask-image: radial-gradient(circle 46px at 50% 32px, transparent 45px, black 47px);
+            mask-image: radial-gradient(circle 46px at 50% 32px, transparent 45px, black 47px);
+  }
+  .nav-icon{ color:#B7B3CC; }
+  .nav-icon.active{ color:#6C5DD3; }
+
+  .paw-loader{ animation: pulse-paw 1.1s ease-in-out infinite; }
+  @keyframes pulse-paw{ 0%,100%{ transform:scale(1); opacity:1;} 50%{ transform:scale(0.88); opacity:0.6;} }
+
+  .fade-in{ animation: fadeIn .35s ease both; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  .live-pulse{
+    box-shadow: 0 0 0 0 rgba(255,101,132,0.55);
+    animation: livepulse 1.8s infinite;
+  }
+  @keyframes livepulse{
+    0%{ box-shadow:0 0 0 0 rgba(255,101,132,0.5); }
+    70%{ box-shadow:0 0 0 14px rgba(255,101,132,0); }
+    100%{ box-shadow:0 0 0 0 rgba(255,101,132,0); }
+  }
+
+  input,select,textarea{ font-family: -apple-system,"Segoe UI",system-ui,Roboto,sans-serif; }
+  input:focus, select:focus, textarea:focus, button:focus-visible{
+    outline: 2px solid #6C5DD3; outline-offset: 2px;
+  }
+
+  #splash{ transition: opacity .4s ease; }
+  #liveMap, .mini-map{ background:#ECEAF6; }
+  .leaflet-container{ font-family: -apple-system,system-ui,sans-serif; border-radius: inherit; }
+  #liveMap.leaflet-container, .mini-map.leaflet-container{ z-index: 0 !important; }
+  /* Harita altlığını soluk gri tona çeviriyoruz; sadece taban karolar (tile-pane)
+     etkileniyor, rota çizgileri/pin'ler/heatmap katmanı (overlay-pane) renkli kalıyor. */
+  .leaflet-tile-pane{ filter: grayscale(1) contrast(0.92) brightness(1.08); opacity: 0.82; }
+
+  @media (prefers-reduced-motion: reduce){
+    .paw-loader, .live-pulse, .fade-in, .bottom-sheet{ animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body class="bg-[#EDEBF6]">
+
+<div class="app-shell" id="appShell">
+
+  <!-- ===================== SPLASH ===================== -->
+  <div id="splash" class="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4" style="background:linear-gradient(160deg,#6C5DD3,#8B7FE8)">
+    <div class="paw-loader w-16 h-16 rounded-full bg-white flex items-center justify-center">
+      <svg viewBox="0 0 24 24" class="w-9 h-9 fill-violet"><path d="M12 14.2c-2.6 0-5.3 2.2-5.3 4.8 0 1.4 1.1 2.4 2.5 2.4.9 0 1.6-.4 2.8-.4s1.9.4 2.8.4c1.4 0 2.5-1 2.5-2.4 0-2.6-2.7-4.8-5.3-4.8z"/><ellipse cx="5.3" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="18.7" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="9" cy="6.4" rx="1.7" ry="2.2"/><ellipse cx="15" cy="6.4" rx="1.7" ry="2.2"/></svg>
+    </div>
+    <div class="font-display text-white text-xl font-bold tracking-tight">Dog-Go <span class="text-[#FFD1DA]">Tracker</span></div>
+  </div>
+
+  <!-- ===================== HEADER (persistent) ===================== -->
+  <header class="sticky top-0 z-40 bg-base/90 backdrop-blur px-5 pt-5 pb-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <button id="backBtn" class="hidden w-9 h-9 -ml-1 rounded-full items-center justify-center bg-white border border-mist active:bg-mist" onclick="Nav.back()">
+        <svg viewBox="0 0 24 24" class="w-5 h-5 stroke-ink" fill="none" stroke-width="2.3" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div>
+        <div class="flex items-center gap-1.5 mb-0.5">
+          <span class="w-5 h-5 rounded-full bg-violet flex items-center justify-center shrink-0">
+            <svg viewBox="0 0 24 24" class="w-3 h-3 fill-white"><path d="M12 14.2c-2.6 0-5.3 2.2-5.3 4.8 0 1.4 1.1 2.4 2.5 2.4.9 0 1.6-.4 2.8-.4s1.9.4 2.8.4c1.4 0 2.5-1 2.5-2.4 0-2.6-2.7-4.8-5.3-4.8z"/><ellipse cx="5.3" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="18.7" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="9" cy="6.4" rx="1.7" ry="2.2"/><ellipse cx="15" cy="6.4" rx="1.7" ry="2.2"/></svg>
+          </span>
+          <span class="font-display text-sm font-extrabold text-violet tracking-tight leading-none">Dog-Go</span>
+        </div>
+        <h1 class="font-display text-xl font-bold text-ink" id="screenTitle">Anasayfa</h1>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button onclick="Settings.open()" class="w-8 h-8 rounded-full bg-white border border-mist flex items-center justify-center shadow-soft shrink-0" aria-label="Ayarlar">
+        <svg viewBox="0 0 24 24" class="w-4 h-4 stroke-inkmut" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </button>
+      <button onclick="Sheets.open('animalSheet')" class="flex items-center gap-2 pl-1.5 pr-3 py-1.5 bg-white rounded-full shadow-soft border border-mist">
+        <span id="activeAvatar" class="w-8 h-8 rounded-full bg-violet-soft flex items-center justify-center text-base">🐕</span>
+        <span id="activeName" class="text-sm font-semibold text-ink max-w-[70px] truncate">Hayvan</span>
+        <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 stroke-inkmut" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================== ONBOARDING / EMPTY STATE ===================== -->
+  <section id="screen-empty" class="screen px-5 pt-6 pb-36 fade-in">
+    <div class="card p-7 text-center mt-6">
+      <div class="text-5xl mb-3">🐾</div>
+      <h2 class="font-display text-lg font-bold text-ink mb-1">Henüz dostun yok</h2>
+      <p class="text-sm text-inkmut mb-5 leading-relaxed">Dog-Go'ya ilk dostunu ekleyerek başla. Yürüyüşlerini, rotalarını ve istatistiklerini burada takip edeceksin.</p>
+      <button onclick="Sheets.open('animalFormSheet')" class="w-full bg-violet text-white font-display font-bold py-3.5 rounded-full active:bg-violet-2">İlk Dostunu Ekle</button>
+    </div>
+  </section>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <section id="screen-dashboard" class="screen px-5 pt-2 pb-36 fade-in">
+    <div class="card p-6 mb-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-inkmut text-xs font-semibold uppercase tracking-widest mb-1">Bugün</p>
+          <p class="font-display text-4xl font-bold text-ink tabular" id="todayDistance">0.0 <span class="text-lg font-semibold text-inkmut">km</span></p>
+          <p class="text-inkmut text-xs mt-1" id="todayDuration">0 dk yürüyüş</p>
+        </div>
+        <div class="w-12 h-12 rounded-full bg-violet flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 24 24" class="w-6 h-6 fill-white"><path d="M12 14.2c-2.6 0-5.3 2.2-5.3 4.8 0 1.4 1.1 2.4 2.5 2.4.9 0 1.6-.4 2.8-.4s1.9.4 2.8.4c1.4 0 2.5-1 2.5-2.4 0-2.6-2.7-4.8-5.3-4.8z"/><ellipse cx="5.3" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="18.7" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="9" cy="6.4" rx="1.7" ry="2.2"/><ellipse cx="15" cy="6.4" rx="1.7" ry="2.2"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div id="todayWalkersWrap" class="mb-4"></div>
+
+    <div class="grid grid-cols-3 gap-2.5 mb-5">
+      <div class="card p-3 flex flex-col items-center text-center">
+        <div class="w-10 h-10 rounded-full bg-sky-soft flex items-center justify-center mb-1.5">
+          <svg viewBox="0 0 24 24" class="w-4.5 h-4.5 stroke-sky-dark" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M12 19V5M20 19v-7"/></svg>
+        </div>
+        <p class="text-[10px] uppercase tracking-wide text-inkmut font-semibold">Bu Hafta</p>
+        <p class="font-display text-sm font-bold text-ink tabular" id="weekStats">0.0 km</p>
+      </div>
+      <div class="card p-3 flex flex-col items-center text-center">
+        <div class="w-10 h-10 rounded-full bg-violet-soft flex items-center justify-center mb-1.5">
+          <svg viewBox="0 0 24 24" class="w-4.5 h-4.5 fill-violet"><path d="M12 14.2c-2.6 0-5.3 2.2-5.3 4.8 0 1.4 1.1 2.4 2.5 2.4.9 0 1.6-.4 2.8-.4s1.9.4 2.8.4c1.4 0 2.5-1 2.5-2.4 0-2.6-2.7-4.8-5.3-4.8z"/><ellipse cx="5.3" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="18.7" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="9" cy="6.4" rx="1.7" ry="2.2"/><ellipse cx="15" cy="6.4" rx="1.7" ry="2.2"/></svg>
+        </div>
+        <p class="text-[10px] uppercase tracking-wide text-inkmut font-semibold">Toplam</p>
+        <p class="font-display text-sm font-bold text-ink tabular" id="totalWalks">0</p>
+      </div>
+      <div class="card p-3 flex flex-col items-center text-center">
+        <div class="w-10 h-10 rounded-full bg-coral-soft flex items-center justify-center mb-1.5">
+          <svg viewBox="0 0 24 24" class="w-4.5 h-4.5 stroke-coral-dark" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+        </div>
+        <p class="text-[10px] uppercase tracking-wide text-inkmut font-semibold">Canlı</p>
+        <p class="font-display text-sm font-bold text-ink tabular" id="liveWalks">0</p>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-display font-bold text-ink">Son Aktiviteler</h3>
+      <button onclick="Nav.go('analytics')" class="text-xs font-semibold text-violet">Tümü →</button>
+    </div>
+    <div id="recentActivityList" class="space-y-2.5"></div>
+  </section>
+
+  <!-- ===================== ANALYTICS ===================== -->
+  <section id="screen-analytics" class="screen px-5 pt-2 pb-36 fade-in">
+    <div class="flex bg-mist rounded-full p-1 mb-4">
+      <button data-range="day" onclick="Analytics.setRange('day')" class="range-btn flex-1 py-2 rounded-full text-sm font-semibold text-inkmut">Günlük</button>
+      <button data-range="week" onclick="Analytics.setRange('week')" class="range-btn flex-1 py-2 rounded-full text-sm font-semibold text-inkmut">Haftalık</button>
+      <button data-range="month" onclick="Analytics.setRange('month')" class="range-btn flex-1 py-2 rounded-full text-sm font-semibold text-inkmut">Aylık</button>
+    </div>
+
+    <div class="flex items-center justify-between mb-5">
+      <button onclick="Analytics.prevPeriod()" class="w-9 h-9 rounded-full bg-white border border-mist flex items-center justify-center shadow-soft active:bg-mist">
+        <svg viewBox="0 0 24 24" class="w-4.5 h-4.5 stroke-ink" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span id="periodLabel" class="font-display font-bold text-ink text-sm">Bugün</span>
+      <button id="nextPeriodBtn" onclick="Analytics.nextPeriod()" class="w-9 h-9 rounded-full bg-white border border-mist flex items-center justify-center shadow-soft active:bg-mist">
+        <svg viewBox="0 0 24 24" class="w-4.5 h-4.5 stroke-ink" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3 mb-5">
+      <div class="card p-4">
+        <p class="text-[11px] uppercase tracking-wider text-inkmut font-semibold mb-1">Toplam Mesafe</p>
+        <p class="font-display text-xl font-bold text-violet tabular" id="rangeDistance">0.0 km</p>
+      </div>
+      <div class="card p-4">
+        <p class="text-[11px] uppercase tracking-wider text-inkmut font-semibold mb-1">Toplam Süre</p>
+        <p class="font-display text-xl font-bold text-violet tabular" id="rangeDuration">0 dk</p>
+      </div>
+    </div>
+
+    <div class="card p-5 mb-5">
+      <h3 class="font-display font-bold text-ink mb-3 text-sm">Gezdiren Kişi Dağılımı</h3>
+      <div id="walkerDistribution" class="space-y-3"></div>
+    </div>
+
+    <div class="card p-5 mb-5">
+      <h3 class="font-display font-bold text-ink mb-1 text-sm">Rota Yoğunluk Haritası</h3>
+      <p class="text-xs text-inkmut mb-3">Canlı takip edilen yürüyüşlerden, en çok gezilen bölgeler</p>
+      <div id="heatmapContainer" class="mini-map w-full h-56 rounded-card overflow-hidden"></div>
+      <p id="heatmapEmpty" class="hidden text-sm text-inkmut text-center py-8">Bu aralıkta canlı rota verisi yok</p>
+    </div>
+
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-display font-bold text-ink">Geçmiş Rotalar</h3>
+    </div>
+    <div id="fullActivityList" class="space-y-2.5"></div>
+  </section>
+
+  <!-- ===================== LIVE TRACKING (fullscreen) ===================== -->
+  <section id="screen-live" class="screen fixed inset-0 z-50 bg-violet max-w-[480px] mx-auto">
+    <div id="liveMap" class="absolute inset-0"></div>
+
+    <div class="absolute top-0 left-0 right-0 p-4 flex items-center justify-between z-20">
+      <button onclick="Live.cancel()" class="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-soft">
+        <svg viewBox="0 0 24 24" class="w-5 h-5 stroke-ink" fill="none" stroke-width="2.3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <div class="live-pulse flex items-center gap-1.5 bg-coral text-white text-xs font-bold px-3 py-1.5 rounded-full">
+        <span class="w-1.5 h-1.5 rounded-full bg-white"></span> CANLI TAKİP
+      </div>
+    </div>
+
+    <div id="liveStatusBadge" class="hidden absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-white text-ink text-xs font-semibold px-3 py-1.5 rounded-full shadow-soft"></div>
+
+    <div class="absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-[28px] p-5 pb-8 shadow-[0_-10px_40px_rgba(36,30,56,0.25)]">
+      <div class="sheet-handle"></div>
+      <div class="grid grid-cols-2 gap-4 mb-5">
+        <div class="text-center">
+          <p class="text-[11px] uppercase tracking-widest text-inkmut font-semibold mb-1">Süre</p>
+          <p class="font-display text-3xl font-bold text-ink tabular" id="liveTimer">00:00</p>
+        </div>
+        <div class="text-center">
+          <p class="text-[11px] uppercase tracking-widest text-inkmut font-semibold mb-1">Mesafe</p>
+          <p class="font-display text-3xl font-bold text-coral tabular" id="liveDistance">0.00 <span class="text-sm">km</span></p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <button id="livePauseBtn" onclick="Live.togglePause()" class="flex-1 border-2 border-violet text-violet font-display font-bold py-3.5 rounded-full active:bg-violet-soft">Duraklat</button>
+        <button onclick="Live.finish()" class="flex-1 bg-coral text-white font-display font-bold py-3.5 rounded-full active:bg-coral-dark">Yürüyüşü Bitir</button>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /app-shell -->
+
+<!-- ===================== BOTTOM NAV (yüzen kapsül + çentikli orta buton) ===================== -->
+<nav id="bottomNav" class="fixed bottom-5 left-5 right-5 max-w-[440px] mx-auto z-30">
+  <div class="relative h-[68px]">
+    <!-- Çentiğin arkasını dolduran, sayfa rengiyle aynı yuvarlak "yuva" -->
+    <div class="absolute left-1/2 -translate-x-1/2 w-[92px] h-[92px] rounded-full bg-base" style="top:-14px;"></div>
+    <!-- Üst kenarına gerçek çentik (mask ile oyulmuş) açılmış kapsül -->
+    <div class="nav-pill absolute inset-0 bg-white border border-mist shadow-soft rounded-full flex items-center justify-between px-8">
+      <button class="nav-icon active flex flex-col items-center gap-1" data-nav="dashboard" onclick="Nav.go('dashboard')">
+        <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>
+        <span class="text-[10px] font-semibold">Anasayfa</span>
+      </button>
+      <div class="w-[72px] shrink-0"></div>
+      <button class="nav-icon flex flex-col items-center gap-1" data-nav="analytics" onclick="Nav.go('analytics')">
+        <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M12 19V5M20 19v-7"/></svg>
+        <span class="text-[10px] font-semibold">Analiz</span>
+      </button>
+    </div>
+    <!-- Çentiğin içinde, etrafında boşluklu (aralıklı) duran ana buton -->
+    <button onclick="Sheets.open('startSheet')" class="absolute left-1/2 -translate-x-1/2 w-[72px] h-[72px] rounded-full bg-violet flex items-center justify-center shadow-[0_6px_16px_-4px_rgba(108,93,211,0.5)] active:bg-violet-2" style="top:-4px;">
+      <svg viewBox="0 0 24 24" class="w-7 h-7 fill-white"><path d="M12 14.2c-2.6 0-5.3 2.2-5.3 4.8 0 1.4 1.1 2.4 2.5 2.4.9 0 1.6-.4 2.8-.4s1.9.4 2.8.4c1.4 0 2.5-1 2.5-2.4 0-2.6-2.7-4.8-5.3-4.8z"/><ellipse cx="5.3" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="18.7" cy="10.8" rx="1.9" ry="2.4"/><ellipse cx="9" cy="6.4" rx="1.7" ry="2.2"/><ellipse cx="15" cy="6.4" rx="1.7" ry="2.2"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ===================== OVERLAY ===================== -->
+<div class="sheet-overlay" id="overlay" onclick="Sheets.closeAll()"></div>
+
+<!-- ===== START SHEET ===== -->
+<div class="bottom-sheet" id="startSheet">
+  <div class="sheet-handle"></div>
+  <h3 class="font-display text-lg font-bold text-ink mb-4 text-center">Ne yapmak istersin?</h3>
+  <button onclick="Sheets.close('startSheet'); Live.openWalkerPicker();" class="w-full flex items-center gap-4 bg-white border border-mist p-4 rounded-card mb-3 active:bg-base">
+    <div class="w-11 h-11 rounded-full bg-coral-soft flex items-center justify-center shrink-0">
+      <svg viewBox="0 0 24 24" class="w-5 h-5 stroke-coral-dark" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+    </div>
+    <div class="text-left">
+      <p class="font-display font-bold text-ink">Yürüyüşe Başla</p>
+      <p class="text-xs text-inkmut">GPS ile rotanı ve mesafeni otomatik kaydet</p>
+    </div>
+  </button>
+  <button onclick="Sheets.close('startSheet'); Forms.openManual();" class="w-full flex items-center gap-4 bg-white border border-mist p-4 rounded-card active:bg-base">
+    <div class="w-11 h-11 rounded-full bg-sky-soft flex items-center justify-center shrink-0">
+      <svg viewBox="0 0 24 24" class="w-5 h-5 stroke-sky-dark" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+    </div>
+    <div class="text-left">
+      <p class="font-display font-bold text-ink">Yürüyüş Ekle</p>
+      <p class="text-xs text-inkmut">Telefonsuz yapılan yürüyüşü elle gir</p>
+    </div>
+  </button>
+</div>
+
+<!-- ===== LIVE WALKER PICKER SHEET ===== -->
+<div class="bottom-sheet" id="liveWalkerSheet">
+  <div class="sheet-handle"></div>
+  <h3 class="font-display text-lg font-bold text-ink mb-1 text-center">Kim Gezdiriyor?</h3>
+  <p class="text-xs text-inkmut text-center mb-4">Canlı takibi bu kişi adına kaydedeceğiz</p>
+  <select id="liveWalkerSelect" class="w-full bg-base border border-mist rounded-2xl px-4 py-3 text-sm mb-4">
+    <option value="Ben">Ben</option>
+    <option value="Tracy">Tracy</option>
+    <option value="Bakıcı">Bakıcı</option>
+    <option value="Diğer">Diğer</option>
+  </select>
+  <button onclick="Live.confirmStart()" class="w-full bg-violet text-white font-display font-bold py-3.5 rounded-full active:bg-violet-2">Yürüyüşe Başla</button>
+</div>
+
+<!-- ===== MANUAL ENTRY SHEET ===== -->
+<div class="bottom-sheet" id="manualSheet">
+  <div class="sheet-handle"></div>
+  <h3 class="font-display text-lg font-bold text-ink mb-4">Manuel Yürüyüş Ekle</h3>
+  <form id="manualForm" class="space-y-3.5" onsubmit="Forms.submitManual(event)">
+    <div>
+      <label class="text-xs font-semibold text-inkmut">Tarih</label>
+      <input required type="date" name="tarih" class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-xs font-semibold text-inkmut">Süre (dk)</label>
+        <input required type="number" min="1" name="sure" placeholder="45" class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-inkmut">Mesafe (km)</label>
+        <input required type="number" step="0.1" min="0" name="mesafe" placeholder="2.5" class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+      </div>
+    </div>
+    <div>
+      <label class="text-xs font-semibold text-inkmut">Gezdiren Kişi</label>
+      <select required name="gezdiren" class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+        <option value="Ben">Ben</option>
+        <option value="Tracy">Tracy</option>
+        <option value="Bakıcı">Bakıcı</option>
+        <option value="Diğer">Diğer</option>
+      </select>
+    </div>
+    <div>
+      <label class="text-xs font-semibold text-inkmut">Notlar</label>
+      <textarea name="notlar" rows="2" placeholder="Mod, gözlemler..." class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm"></textarea>
+    </div>
+    <button type="submit" class="w-full bg-violet text-white font-display font-bold py-3.5 rounded-full mt-2 active:bg-violet-2">Kaydet</button>
+  </form>
+</div>
+
+<!-- ===== ANIMAL SWITCH / MANAGE SHEET ===== -->
+<div class="bottom-sheet" id="animalSheet">
+  <div class="sheet-handle"></div>
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="font-display text-lg font-bold text-ink">Dostlarım</h3>
+    <button onclick="Sheets.close('animalSheet'); Sheets.open('animalFormSheet');" class="w-8 h-8 rounded-full bg-violet flex items-center justify-center">
+      <svg viewBox="0 0 24 24" class="w-4 h-4 stroke-white" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </div>
+  <div id="animalList" class="space-y-2.5 mb-2"></div>
+</div>
+
+<!-- ===== ANIMAL ADD/EDIT SHEET ===== -->
+<div class="bottom-sheet" id="animalFormSheet">
+  <div class="sheet-handle"></div>
+  <h3 class="font-display text-lg font-bold text-ink mb-4" id="animalFormTitle">Yeni Dost Ekle</h3>
+  <form id="animalForm" class="space-y-3.5" onsubmit="Animals.submitForm(event)">
+    <input type="hidden" name="hayvanId">
+    <div>
+      <label class="text-xs font-semibold text-inkmut">Avatar</label>
+      <div id="avatarPicker" class="flex gap-2 mt-2 flex-wrap"></div>
+    </div>
+    <div>
+      <label class="text-xs font-semibold text-inkmut">İsim</label>
+      <input required name="isim" placeholder="Örn: Karamel" class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-xs font-semibold text-inkmut">Tür</label>
+        <select name="tur" class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+          <option>Köpek</option><option>Kedi</option><option>Diğer</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-inkmut">Doğum Tarihi</label>
+        <input type="date" name="dogumTarihi" oninput="document.getElementById('ageHint').textContent = this.value ? ('Yaş: ' + Animals.formatAge(this.value)) : '';" class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+      </div>
+    </div>
+    <p id="ageHint" class="text-xs text-inkmut -mt-2"></p>
+    <button type="submit" class="w-full bg-violet text-white font-display font-bold py-3.5 rounded-full mt-2 active:bg-violet-2">Kaydet</button>
+    <button type="button" id="deleteAnimalBtn" onclick="Animals.deleteCurrentForm()" class="hidden w-full text-coral font-semibold text-sm py-2">Bu dostu sil</button>
+  </form>
+</div>
+
+<!-- ===== ACTIVITY DETAIL SHEET ===== -->
+<div class="bottom-sheet" id="detailSheet">
+  <div class="sheet-handle"></div>
+  <div id="detailContent"></div>
+</div>
+
+<!-- ===== SETTINGS SHEET ===== -->
+<div class="bottom-sheet" id="settingsSheet">
+  <div class="sheet-handle"></div>
+  <h3 class="font-display text-lg font-bold text-ink mb-1">Ayarlar</h3>
+  <p class="text-xs text-inkmut mb-4">Google Apps Script Web App bağlantını buradan yönetebilirsin.</p>
+  <label class="text-xs font-semibold text-inkmut">Apps Script Web App URL</label>
+  <input id="apiUrlInput" type="url" placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+    class="w-full mt-1 bg-base border border-mist rounded-2xl px-4 py-3 text-sm">
+  <div id="settingsStatus" class="text-xs mt-2 min-h-[16px]"></div>
+  <div class="flex gap-3 mt-4">
+    <button onclick="Settings.test()" class="flex-1 border-2 border-violet text-violet font-display font-bold py-3 rounded-full active:bg-violet-soft">Test Et</button>
+    <button onclick="Settings.save()" class="flex-1 bg-violet text-white font-display font-bold py-3 rounded-full active:bg-violet-2">Kaydet</button>
+  </div>
+  <button onclick="Settings.clear()" class="w-full text-coral font-semibold text-sm py-2 mt-1">Bağlantıyı kaldır (localStorage'a geri dön)</button>
+</div>
+
+<!-- ===== TOAST ===== -->
+<div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-28 z-[70] bg-ink text-white text-sm font-semibold px-5 py-3 rounded-full shadow-xl opacity-0 pointer-events-none transition-all duration-300"></div>
+
+<script>
+/* =========================================================================
+   DOG-GO TRACKER — Uygulama Mantığı
+   Backend: Google Apps Script Web App (Code.gs) + Google Sheets
+   Offline: localStorage üzerinden yedekleme / bekleyen kuyruk (pending queue)
+   ========================================================================= */
+
+const CONFIG = {
+  // Google Apps Script "Web App" deploy URL'ini buraya yapıştırabilirsin
+  // YA DA sağ üstteki Ayarlar ikonundan uygulama içinden girip kaydedebilirsin.
+  API_URL: "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE"
+};
+{
+  const savedUrl = localStorage.getItem('dgt_api_url');
+  if(savedUrl) CONFIG.API_URL = savedUrl;
+}
+
+const LS = {
+  ANIMALS: 'dgt_animals',
+  ACTIVITIES: 'dgt_activities',
+  ACTIVE: 'dgt_active_animal',
+  QUEUE: 'dgt_pending_queue'
+};
+
+const AVATARS = ['🐕','🐩','🦮','🐕‍🦺','🐈','🐈‍⬛','🐇','🐾'];
+
+function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function todayISO(){ const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function walkerLabel(name){ return name==='Eşim' ? 'Tracy' : name; }
+function sortActivitiesDesc(arr){
+  // En yeni aktivite en üstte: önce tarihe, eşitse AktiviteID'ye (oluşturulma sırasına) göre azalan sıralama.
+  return arr.slice().sort((a,b)=>{
+    const da = parseLocalDate(a.Tarih)?.getTime() || 0;
+    const db = parseLocalDate(b.Tarih)?.getTime() || 0;
+    if(db !== da) return db - da;
+    return String(b.AktiviteID).localeCompare(String(a.AktiviteID));
+  });
+}
+function parseLocalDate(str){
+  // "YYYY-MM-DD" metnini YEREL saat diliminde ayrıştırır (new Date(str) UTC varsayar,
+  // bu da saat dilimine göre günün kaymasına ve filtrelerin yanlış çalışmasına yol açar).
+  if(!str) return null;
+  const parts = String(str).slice(0,10).split('-').map(Number);
+  if(parts.length !== 3 || parts.some(isNaN)) return null;
+  return new Date(parts[0], parts[1]-1, parts[2]);
+}
+
+/* ---------------- Local storage helpers ---------------- */
+const Store = {
+  get(key, fallback){ try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch(e){ return fallback; } },
+  set(key, val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){} }
+};
+
+let STATE = {
+  animals: Store.get(LS.ANIMALS, []),
+  activities: Store.get(LS.ACTIVITIES, []),
+  activeAnimalId: Store.get(LS.ACTIVE, null),
+  range: 'week'
+};
+
+/* ---------------- API layer (Apps Script) ----------------
+   Not: Google Apps Script Web App'lerinde CORS preflight sorunlarından
+   kaçınmak için POST isteklerinde 'text/plain' content-type kullanılır. */
+const Api = {
+  get configured(){ return CONFIG.API_URL && !CONFIG.API_URL.startsWith('PASTE_'); },
+
+  async fetchAll(){
+    if(!this.configured) return null;
+    try{
+      const res = await fetch(CONFIG.API_URL + '?action=getData');
+      const data = await res.json();
+      if(data && data.ok){
+        STATE.animals = data.animals || [];
+        STATE.activities = data.activities || [];
+        Store.set(LS.ANIMALS, STATE.animals);
+        Store.set(LS.ACTIVITIES, STATE.activities);
+        return data;
+      }
+      console.warn('Apps Script yanıtı beklenmeyen formatta:', data);
+      Toast.show('Sheets\'ten veri gelmedi — Ayarlar > Test Et ile kontrol et');
+    }catch(e){
+      console.warn('Apps Script erişilemedi, localStorage kullanılıyor.', e);
+      Toast.show('Sheets\'e bağlanılamadı — Ayarlar > Test Et ile kontrol et');
+    }
+    return null;
+  },
+
+  async send(action, payload){
+    if(!this.configured){ Queue.push(action, payload); return {ok:false, offline:true}; }
+    try{
+      const res = await fetch(CONFIG.API_URL, {
+        method:'POST',
+        headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, payload })
+      });
+      const data = await res.json();
+      if(!data.ok) Queue.push(action, payload);
+      return data;
+    }catch(e){
+      Queue.push(action, payload);
+      return {ok:false, offline:true};
+    }
+  }
+};
+
+const Queue = {
+  push(action, payload){
+    const q = Store.get(LS.QUEUE, []);
+    q.push({ action, payload, ts: Date.now() });
+    Store.set(LS.QUEUE, q);
+  },
+  async flush(){
+    if(!Api.configured) return;
+    let q = Store.get(LS.QUEUE, []);
+    if(!q.length) return;
+    const remaining = [];
+    for(const item of q){
+      try{
+        const res = await fetch(CONFIG.API_URL, {
+          method:'POST',
+          headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action:item.action, payload:item.payload })
+        });
+        const data = await res.json();
+        if(!data.ok) remaining.push(item);
+      }catch(e){ remaining.push(item); }
+    }
+    Store.set(LS.QUEUE, remaining);
+    if(remaining.length < q.length) Toast.show('Bekleyen kayıtlar senkronize edildi ✓');
+  }
+};
+window.addEventListener('online', ()=>Queue.flush());
+
+/* ---------------- Toast ---------------- */
+const Toast = {
+  show(msg){
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.remove('opacity-0','pointer-events-none');
+    el.classList.add('opacity-100');
+    clearTimeout(this._t);
+    this._t = setTimeout(()=>{ el.classList.add('opacity-0','pointer-events-none'); el.classList.remove('opacity-100'); }, 2200);
+  }
+};
+
+/* ---------------- Sheets (bottom sheets) ---------------- */
+const Sheets = {
+  open(id){
+    document.getElementById('overlay').classList.add('show');
+    document.getElementById(id).classList.add('show');
+  },
+  close(id){
+    document.getElementById(id).classList.remove('show');
+    if(!document.querySelector('.bottom-sheet.show')) document.getElementById('overlay').classList.remove('show');
+  },
+  closeAll(){
+    document.querySelectorAll('.bottom-sheet.show').forEach(s=>s.classList.remove('show'));
+    document.getElementById('overlay').classList.remove('show');
+  }
+};
+
+/* ---------------- Settings (Apps Script bağlantısı) ---------------- */
+const Settings = {
+  setStatus(msg, kind){
+    const el = document.getElementById('settingsStatus');
+    el.textContent = msg || '';
+    el.className = 'text-xs mt-2 min-h-[16px] ' + (kind==='ok' ? 'text-moss' : kind==='err' ? 'text-coral' : 'text-inkmut');
+  },
+  open(){
+    document.getElementById('apiUrlInput').value = Api.configured ? CONFIG.API_URL : '';
+    this.setStatus('');
+    Sheets.open('settingsSheet');
+  },
+  async test(){
+    const url = document.getElementById('apiUrlInput').value.trim();
+    if(!url){ this.setStatus('Önce bir URL gir.', 'err'); return; }
+    this.setStatus('Test ediliyor…');
+    try{
+      const res = await fetch(url + '?action=getData');
+      const data = await res.json();
+      if(data && data.ok){
+        this.setStatus(`Bağlantı başarılı ✓ (${data.animals?.length||0} hayvan, ${data.activities?.length||0} aktivite)`, 'ok');
+      } else {
+        this.setStatus('Bağlandı ama beklenmeyen bir yanıt geldi. Code.gs doğru deploy edilmiş mi kontrol et.', 'err');
+      }
+    }catch(e){
+      this.setStatus('Bağlanılamadı. URL doğru mu ve "Anyone" erişimiyle deploy edildi mi kontrol et.', 'err');
+    }
+  },
+  async save(){
+    const url = document.getElementById('apiUrlInput').value.trim();
+    if(!url || !url.startsWith('http')){ this.setStatus('Geçerli bir URL gir (https:// ile başlamalı).', 'err'); return; }
+    localStorage.setItem('dgt_api_url', url);
+    CONFIG.API_URL = url;
+    this.setStatus('Kaydedildi, senkronize ediliyor…', 'ok');
+    await Api.fetchAll();
+    await Queue.flush();
+    Header.render();
+    Dashboard.render();
+    Toast.show('Ayarlar kaydedildi ✓');
+    Sheets.close('settingsSheet');
+  },
+  clear(){
+    localStorage.removeItem('dgt_api_url');
+    CONFIG.API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+    document.getElementById('apiUrlInput').value = '';
+    this.setStatus('Bağlantı kaldırıldı, veriler artık sadece bu cihazda tutulacak.', 'ok');
+    Toast.show('Apps Script bağlantısı kaldırıldı');
+  }
+};
+
+/* ---------------- Navigation ---------------- */
+const Nav = {
+  current: 'dashboard',
+  go(screen){
+    if(!STATE.animals.length && screen !== 'empty'){ screen = 'empty'; }
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.getElementById('screen-'+screen).classList.add('active');
+    document.getElementById('bottomNav').style.display = (screen==='live') ? 'none' : 'block';
+    document.querySelectorAll('.nav-icon').forEach(b=>b.classList.toggle('active', b.dataset.nav===screen));
+    const titles = { dashboard:'Anasayfa', analytics:'Analiz', empty:'Başla' };
+    if(titles[screen]){ document.getElementById('screenTitle').textContent = titles[screen]; }
+    document.getElementById('backBtn').classList.toggle('hidden', screen!=='live');
+    this.current = screen;
+    if(screen==='dashboard') Dashboard.render();
+    if(screen==='analytics') Analytics.render();
+  },
+  back(){ this.go('dashboard'); }
+};
+
+/* ---------------- Animals module ---------------- */
+const Animals = {
+  active(){ return STATE.animals.find(a=>a.HayvanID===STATE.activeAnimalId) || STATE.animals[0]; },
+
+  formatAge(dogumTarihi){
+    if(!dogumTarihi) return '';
+    const b = new Date(dogumTarihi), t = new Date();
+    if(isNaN(b.getTime())) return '';
+    let months = (t.getFullYear()-b.getFullYear())*12 + (t.getMonth()-b.getMonth());
+    if(t.getDate() < b.getDate()) months--;
+    if(months < 0) months = 0;
+    if(months < 12) return months + ' aylık';
+    const years = Math.floor(months/12);
+    return years + ' yaş';
+  },
+
+  renderSwitcher(){
+    const wrap = document.getElementById('animalList');
+    wrap.innerHTML = STATE.animals.map(a=>`
+      <div class="flex items-center gap-3 p-3 rounded-card border ${a.HayvanID===STATE.activeAnimalId ? 'border-violet bg-violet-soft' : 'border-mist bg-white'}">
+        <button onclick="Animals.setActive('${a.HayvanID}')" class="flex items-center gap-3 flex-1 text-left">
+          <span class="w-11 h-11 rounded-full bg-mist flex items-center justify-center text-xl">${a.Avatar||'🐕'}</span>
+          <span>
+            <span class="block font-display font-bold text-ink text-sm">${a.Isim}</span>
+            <span class="block text-xs text-inkmut">${a.Tur||'Köpek'} ${Animals.formatAge(a.DogumTarihi)?('· '+Animals.formatAge(a.DogumTarihi)):''}</span>
+          </span>
+        </button>
+        <button onclick="Animals.editForm('${a.HayvanID}')" class="w-8 h-8 rounded-full flex items-center justify-center active:bg-mist">
+          <svg viewBox="0 0 24 24" class="w-4 h-4 stroke-inkmut" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+        </button>
+      </div>
+    `).join('') || `<p class="text-sm text-inkmut text-center py-4">Henüz dost eklenmedi.</p>`;
+  },
+
+  setActive(id){
+    STATE.activeAnimalId = id;
+    Store.set(LS.ACTIVE, id);
+    Sheets.close('animalSheet');
+    Header.render();
+    Dashboard.render();
+    if(Nav.current==='analytics') Analytics.render();
+  },
+
+  openAddForm(){
+    document.getElementById('animalForm').reset();
+    document.getElementById('animalForm').hayvanId.value = '';
+    document.getElementById('animalFormTitle').textContent = 'Yeni Dost Ekle';
+    document.getElementById('deleteAnimalBtn').classList.add('hidden');
+    document.getElementById('ageHint').textContent = '';
+    this.buildAvatarPicker(AVATARS[0]);
+  },
+
+  editForm(id){
+    const a = STATE.animals.find(x=>x.HayvanID===id);
+    if(!a) return;
+    Sheets.close('animalSheet');
+    const f = document.getElementById('animalForm');
+    f.hayvanId.value = a.HayvanID;
+    f.isim.value = a.Isim;
+    f.tur.value = a.Tur || 'Köpek';
+    f.dogumTarihi.value = a.DogumTarihi || '';
+    document.getElementById('ageHint').textContent = a.DogumTarihi ? ('Yaş: ' + Animals.formatAge(a.DogumTarihi)) : '';
+    document.getElementById('animalFormTitle').textContent = 'Dostu Düzenle';
+    document.getElementById('deleteAnimalBtn').classList.remove('hidden');
+    this.buildAvatarPicker(a.Avatar || AVATARS[0]);
+    Sheets.open('animalFormSheet');
+  },
+
+  buildAvatarPicker(selected){
+    const wrap = document.getElementById('avatarPicker');
+    wrap.dataset.selected = selected;
+    wrap.innerHTML = AVATARS.map(av=>`
+      <button type="button" onclick="Animals.pickAvatar('${av}')"
+        class="avatar-opt w-10 h-10 rounded-full flex items-center justify-center text-lg ${av===selected?'bg-violet-soft ring-2 ring-violet':'bg-mist'}">${av}</button>
+    `).join('');
+  },
+  pickAvatar(av){
+    const wrap = document.getElementById('avatarPicker');
+    wrap.dataset.selected = av;
+    [...wrap.children].forEach(btn=>{
+      const on = btn.textContent.trim()===av;
+      btn.className = 'avatar-opt w-10 h-10 rounded-full flex items-center justify-center text-lg ' + (on?'bg-violet-soft ring-2 ring-violet':'bg-mist');
+    });
+  },
+
+  async submitForm(e){
+    e.preventDefault();
+    const f = e.target;
+    const id = f.hayvanId.value || uid('hyv');
+    const record = {
+      HayvanID: id,
+      Isim: f.isim.value.trim(),
+      Tur: f.tur.value,
+      DogumTarihi: f.dogumTarihi.value,
+      Avatar: document.getElementById('avatarPicker').dataset.selected || '🐕'
+    };
+    const isNew = !f.hayvanId.value;
+    if(isNew) STATE.animals.push(record);
+    else STATE.animals = STATE.animals.map(a=>a.HayvanID===id?record:a);
+
+    Store.set(LS.ANIMALS, STATE.animals);
+    if(isNew || !STATE.activeAnimalId) { STATE.activeAnimalId = id; Store.set(LS.ACTIVE, id); }
+
+    await Api.send(isNew ? 'addAnimal' : 'updateAnimal', record);
+    Sheets.close('animalFormSheet');
+    Toast.show(isNew ? 'Dost eklendi 🐾' : 'Bilgiler güncellendi');
+    Header.render();
+    Nav.go(STATE.animals.length ? (Nav.current==='empty'?'dashboard':Nav.current) : 'empty');
+  },
+
+  async deleteCurrentForm(){
+    const id = document.getElementById('animalForm').hayvanId.value;
+    if(!id) return;
+    if(!confirm('Bu dostu ve tüm aktivite geçmişini silmek istediğine emin misin?')) return;
+    STATE.animals = STATE.animals.filter(a=>a.HayvanID!==id);
+    STATE.activities = STATE.activities.filter(a=>a.HayvanID!==id);
+    Store.set(LS.ANIMALS, STATE.animals);
+    Store.set(LS.ACTIVITIES, STATE.activities);
+    if(STATE.activeAnimalId===id) STATE.activeAnimalId = STATE.animals[0]?.HayvanID || null;
+    Store.set(LS.ACTIVE, STATE.activeAnimalId);
+    await Api.send('deleteAnimal', {HayvanID:id});
+    Sheets.close('animalFormSheet');
+    Toast.show('Dost silindi');
+    Header.render();
+    Nav.go(STATE.animals.length ? 'dashboard' : 'empty');
+  }
+};
+
+/* ---------------- Header ---------------- */
+const Header = {
+  render(){
+    const a = Animals.active();
+    document.getElementById('activeAvatar').textContent = a ? (a.Avatar||'🐕') : '🐾';
+    document.getElementById('activeName').textContent = a ? a.Isim : 'Dost ekle';
+    Animals.renderSwitcher();
+  }
+};
+
+/* ---------------- Forms: manual entry ---------------- */
+const Forms = {
+  openManual(){
+    if(!Animals.active()){ Toast.show('Önce bir dost eklemelisin'); Sheets.open('animalFormSheet'); return; }
+    document.getElementById('manualForm').reset();
+    document.getElementById('manualForm').tarih.value = todayISO();
+    Sheets.open('manualSheet');
+  },
+  async submitManual(e){
+    e.preventDefault();
+    const f = e.target;
+    const active = Animals.active();
+    const record = {
+      AktiviteID: uid('akt'),
+      HayvanID: active.HayvanID,
+      Tarih: f.tarih.value,
+      SureDakika: Number(f.sure.value),
+      MesafeKm: Number(f.mesafe.value),
+      GezdirenKisi: f.gezdiren.value,
+      Tip: 'Manuel',
+      Notlar: f.notlar.value,
+      RotaKoordinatlari: ''
+    };
+    STATE.activities.unshift(record);
+    Store.set(LS.ACTIVITIES, STATE.activities);
+    await Api.send('addActivity', record);
+    Sheets.close('manualSheet');
+    Toast.show('Yürüyüş kaydedildi ✓');
+    Dashboard.render();
+    if(Nav.current==='analytics') Analytics.render();
+  }
+};
+
+/* ---------------- Live tracking module ---------------- */
+const Live = {
+  map:null, polyline:null, marker:null, watchId:null,
+  coords:[], seconds:0, distanceKm:0, timerInt:null, paused:false, lastFix:null,
+  selectedWalker:'Ben',
+
+  openWalkerPicker(){
+    if(!Animals.active()){ Toast.show('Önce bir dost eklemelisin'); Sheets.open('animalFormSheet'); return; }
+    document.getElementById('liveWalkerSelect').value = this.selectedWalker || 'Ben';
+    Sheets.open('liveWalkerSheet');
+  },
+  confirmStart(){
+    this.selectedWalker = document.getElementById('liveWalkerSelect').value;
+    Sheets.close('liveWalkerSheet');
+    this.start();
+  },
+
+  start(){
+    if(!Animals.active()){ Toast.show('Önce bir dost eklemelisin'); Sheets.open('animalFormSheet'); return; }
+    this.coords=[]; this.seconds=0; this.distanceKm=0; this.paused=false; this.lastFix=null;
+    document.getElementById('liveTimer').textContent='00:00';
+    document.getElementById('liveDistance').innerHTML='0.00 <span class="text-sm">km</span>';
+    document.getElementById('livePauseBtn').textContent='Duraklat';
+    document.getElementById('bottomNav').style.display='none';
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.getElementById('screen-live').classList.add('active');
+    Nav.current='live';
+    this.setStatus('Konumun aranıyor…');
+
+    setTimeout(()=>{
+      if(!this.map){
+        this.map = L.map('liveMap', {zoomControl:false}).setView([41.015,28.979], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, subdomains:'abc'}).addTo(this.map);
+        this.polyline = L.polyline([], {color:'#FF6584', weight:6, opacity:0.9, lineCap:'round', lineJoin:'round'}).addTo(this.map);
+      } else { this.map.invalidateSize(); }
+
+      if(!navigator.geolocation){
+        this.setStatus('Bu cihaz/tarayıcı konum servisini desteklemiyor');
+        Toast.show('Konum servisi desteklenmiyor, manuel giriş kullanabilirsin');
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        pos => { this.map.setView([pos.coords.latitude, pos.coords.longitude], 17); this.onFix(pos); },
+        err => this.handleGeoError(err),
+        { enableHighAccuracy:true, timeout:10000, maximumAge:0 }
+      );
+
+      this.watchId = navigator.geolocation.watchPosition(
+        pos => this.onFix(pos),
+        err => this.handleGeoError(err),
+        { enableHighAccuracy:true, maximumAge:2000, timeout:10000 }
+      );
+    }, 60);
+
+    this.timerInt = setInterval(()=>{ if(!this.paused){ this.seconds++; this.renderTimer(); } }, 1000);
+  },
+
+  setStatus(msg){
+    const el = document.getElementById('liveStatusBadge');
+    if(!msg){ el.classList.add('hidden'); return; }
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  },
+
+  handleGeoError(err){
+    console.warn(err);
+    const messages = {
+      1: 'Konum izni reddedildi. Tarayıcı ayarlarından konuma izin ver.',
+      2: 'Konum şu anda alınamıyor. Açık alanda tekrar dene.',
+      3: 'Konum isteği zaman aşımına uğradı, tekrar deneniyor…'
+    };
+    this.setStatus(messages[err.code] || 'Konum alınamadı');
+    if(err.code === 1) Toast.show('Konum izni verilmedi — manuel giriş kullanabilirsin');
+  },
+
+  onFix(pos){
+    const {latitude, longitude} = pos.coords;
+    this.setStatus(null);
+    if(this.paused) return;
+    if(this.lastFix){
+      this.distanceKm += this.haversine(this.lastFix.latitude, this.lastFix.longitude, latitude, longitude);
+      document.getElementById('liveDistance').innerHTML = this.distanceKm.toFixed(2)+' <span class="text-sm">km</span>';
+    }
+    this.lastFix = {latitude, longitude};
+    this.coords.push([latitude, longitude]);
+    if(this.map){
+      this.polyline.addLatLng([latitude, longitude]);
+      if(!this.marker){
+        const icon = L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#6C5DD3;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>', className:'', iconSize:[16,16]});
+        this.marker = L.marker([latitude, longitude], {icon}).addTo(this.map);
+      } else { this.marker.setLatLng([latitude, longitude]); }
+      this.map.panTo([latitude, longitude]);
+    }
+  },
+
+  haversine(lat1, lon1, lat2, lon2){
+    const R=6371, toRad=d=>d*Math.PI/180;
+    const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return R * 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  },
+
+  renderTimer(){
+    const m = String(Math.floor(this.seconds/60)).padStart(2,'0');
+    const s = String(this.seconds%60).padStart(2,'0');
+    document.getElementById('liveTimer').textContent = `${m}:${s}`;
+  },
+
+  togglePause(){
+    this.paused = !this.paused;
+    document.getElementById('livePauseBtn').textContent = this.paused ? 'Devam Et' : 'Duraklat';
+  },
+
+  cancel(){
+    if(!confirm('Canlı takibi iptal etmek istediğine emin misin? Kayıt tutulmayacak.')) return;
+    this.teardown();
+    Nav.go('dashboard');
+  },
+
+  async finish(){
+    this.teardown();
+    const active = Animals.active();
+    const record = {
+      AktiviteID: uid('akt'),
+      HayvanID: active.HayvanID,
+      Tarih: todayISO(),
+      SureDakika: Math.max(1, Math.round(this.seconds/60)),
+      MesafeKm: Number(this.distanceKm.toFixed(2)),
+      GezdirenKisi: this.selectedWalker || 'Ben',
+      Tip: 'Canli',
+      Notlar: '',
+      RotaKoordinatlari: JSON.stringify(this.coords)
+    };
+    STATE.activities.unshift(record);
+    Store.set(LS.ACTIVITIES, STATE.activities);
+    await Api.send('addActivity', record);
+    Nav.go('dashboard');
+    Toast.show('Yürüyüş kaydedildi ✓');
+    Detail.open(record.AktiviteID);
+  },
+
+  teardown(){
+    this.setStatus(null);
+    if(this.watchId!==null) navigator.geolocation.clearWatch(this.watchId);
+    if(this.timerInt) clearInterval(this.timerInt);
+    this.watchId=null; this.timerInt=null;
+    if(this.marker){ this.map.removeLayer(this.marker); this.marker=null; }
+    if(this.polyline){ this.polyline.setLatLngs([]); }
+  }
+};
+
+/* ---------------- Dashboard ---------------- */
+const Dashboard = {
+  render(){
+    Header.render();
+    const active = Animals.active();
+    const mine = sortActivitiesDesc(STATE.activities.filter(a=>a.HayvanID===active?.HayvanID));
+    const today = mine.filter(a=>String(a.Tarih).slice(0,10)===todayISO());
+    const todayKm = today.reduce((s,a)=>s+Number(a.MesafeKm||0),0);
+    const todayMin = today.reduce((s,a)=>s+Number(a.SureDakika||0),0);
+    document.getElementById('todayDistance').innerHTML = todayKm.toFixed(1)+' <span class="text-lg font-semibold text-inkmut">km</span>';
+    document.getElementById('todayDuration').textContent = todayMin+' dk yürüyüş';
+
+    const weekAgo = new Date(); weekAgo.setHours(0,0,0,0); weekAgo.setDate(weekAgo.getDate()-7);
+    const week = mine.filter(a=>{ const d = parseLocalDate(a.Tarih); return d && d >= weekAgo; });
+    document.getElementById('weekStats').textContent = week.reduce((s,a)=>s+Number(a.MesafeKm||0),0).toFixed(1)+' km';
+    document.getElementById('totalWalks').textContent = mine.length;
+    document.getElementById('liveWalks').textContent = mine.filter(a=>a.Tip==='Canli').length;
+
+    const todayByWalker = {};
+    today.forEach(a=>{ const name = walkerLabel(a.GezdirenKisi); todayByWalker[name] = (todayByWalker[name]||0) + 1; });
+    const walkerEntries = Object.entries(todayByWalker);
+    const twWrap = document.getElementById('todayWalkersWrap');
+    twWrap.innerHTML = walkerEntries.length ? `
+      <div class="card p-4">
+        <p class="text-[11px] uppercase tracking-wider text-inkmut font-semibold mb-2.5">Bugün Kim Gezdirdi</p>
+        <div class="flex flex-wrap gap-2">
+          ${walkerEntries.map(([name,count])=>`
+            <span class="flex items-center gap-1.5 bg-violet-soft text-violet text-xs font-bold pl-2.5 pr-3 py-1.5 rounded-full">
+              <span class="w-5 h-5 rounded-full bg-violet text-white flex items-center justify-center text-[10px]">${count}</span>
+              ${name}
+            </span>
+          `).join('')}
+        </div>
+      </div>` : '';
+
+    const list = document.getElementById('recentActivityList');
+    const recent = mine.slice(0,5);
+    list.innerHTML = recent.length ? recent.map(a=>ActivityUI.card(a)).join('') :
+      `<div class="card p-6 text-center"><p class="text-sm text-inkmut">Henüz aktivite yok. "Başla" ile ilk yürüyüşünü ekle 🐾</p></div>`;
+  }
+};
+
+/* ---------------- Activity card / detail ---------------- */
+const ActivityUI = {
+  card(a){
+    const isLive = a.Tip==='Canli';
+    return `
+    <button onclick="Detail.open('${a.AktiviteID}')" class="w-full card p-4 flex items-center gap-3 text-left">
+      <div class="w-11 h-11 rounded-full ${isLive?'bg-coral-soft':'bg-sky-soft'} flex items-center justify-center shrink-0">
+        ${isLive ? `<svg viewBox="0 0 24 24" class="w-5 h-5 stroke-coral-dark" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>`
+                 : `<svg viewBox="0 0 24 24" class="w-5 h-5 stroke-sky-dark" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>`}
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="font-display font-bold text-ink text-sm">${a.MesafeKm} km · ${a.SureDakika} dk</p>
+        <p class="text-xs text-inkmut truncate">${a.Tarih} · ${walkerLabel(a.GezdirenKisi)} · ${isLive?'Canlı Takip':'Manuel'}</p>
+      </div>
+      <svg viewBox="0 0 24 24" class="w-4 h-4 stroke-inkmut shrink-0" fill="none" stroke-width="2.3" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+    </button>`;
+  }
+};
+
+const Detail = {
+  map:null,
+  open(id){
+    const a = STATE.activities.find(x=>x.AktiviteID===id);
+    if(!a) return;
+    const animal = STATE.animals.find(x=>x.HayvanID===a.HayvanID);
+    const isLive = a.Tip==='Canli';
+    document.getElementById('detailContent').innerHTML = `
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-display text-lg font-bold text-ink">${animal?.Avatar||'🐾'} ${animal?.Isim||''} · ${a.Tarih}</h3>
+        <span class="text-[11px] font-bold px-2.5 py-1 rounded-full ${isLive?'bg-coral-soft text-coral-dark':'bg-sky-soft text-sky-dark'}">${isLive?'CANLI':'MANUEL'}</span>
+      </div>
+      ${isLive ? '<div id="detailMap" class="mini-map w-full h-52 rounded-card mb-4"></div>' : ''}
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="bg-base rounded-2xl p-3"><p class="text-[11px] text-inkmut font-semibold uppercase">Mesafe</p><p class="font-display font-bold text-ink tabular">${a.MesafeKm} km</p></div>
+        <div class="bg-base rounded-2xl p-3"><p class="text-[11px] text-inkmut font-semibold uppercase">Süre</p><p class="font-display font-bold text-ink tabular">${a.SureDakika} dk</p></div>
+        <div class="bg-base rounded-2xl p-3"><p class="text-[11px] text-inkmut font-semibold uppercase">Gezdiren</p><p class="font-display font-bold text-ink">${walkerLabel(a.GezdirenKisi)}</p></div>
+        <div class="bg-base rounded-2xl p-3"><p class="text-[11px] text-inkmut font-semibold uppercase">Tip</p><p class="font-display font-bold text-ink">${isLive?'Canlı Takip':'Manuel'}</p></div>
+      </div>
+      ${a.Notlar ? `<div class="mb-4"><p class="text-[11px] text-inkmut font-semibold uppercase mb-1">Notlar</p><p class="text-sm text-ink">${a.Notlar}</p></div>` : ''}
+      <button onclick="Detail.remove('${a.AktiviteID}')" class="w-full text-coral font-semibold text-sm py-2">Bu kaydı sil</button>
+    `;
+    Sheets.open('detailSheet');
+    if(isLive){
+      setTimeout(()=>{
+        const coords = JSON.parse(a.RotaKoordinatlari || '[]');
+        const m = L.map('detailMap', {zoomControl:false, dragging:true, scrollWheelZoom:false});
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(m);
+        if(coords.length){
+          const line = L.polyline(coords, {color:'#FF6584', weight:5, lineCap:'round'}).addTo(m);
+          m.fitBounds(line.getBounds(), {padding:[20,20]});
+        } else { m.setView([41.015,28.979], 13); }
+      }, 80);
+    }
+  },
+  async remove(id){
+    if(!confirm('Bu kaydı silmek istediğine emin misin?')) return;
+    STATE.activities = STATE.activities.filter(a=>a.AktiviteID!==id);
+    Store.set(LS.ACTIVITIES, STATE.activities);
+    await Api.send('deleteActivity', {AktiviteID:id});
+    Sheets.close('detailSheet');
+    Toast.show('Kayıt silindi');
+    Dashboard.render();
+    if(Nav.current==='analytics') Analytics.render();
+  }
+};
+
+/* ---------------- Analytics ---------------- */
+const Analytics = {
+  anchorDate: new Date(),
+  monthsTR: ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'],
+
+  setRange(r){
+    STATE.range = r;
+    this.anchorDate = new Date();
+    document.querySelectorAll('.range-btn').forEach(b=>{
+      const on = b.dataset.range===r;
+      b.classList.toggle('bg-violet', on);
+      b.classList.toggle('text-white', on);
+      b.classList.toggle('text-inkmut', !on);
+    });
+    this.render();
+  },
+
+  periodBounds(){
+    const anchor = new Date(this.anchorDate); anchor.setHours(0,0,0,0);
+    if(STATE.range==='day'){
+      return { from: anchor, to: anchor };
+    }
+    if(STATE.range==='week'){
+      const dow = anchor.getDay(); // 0=Paz ... 6=Cmt
+      const mondayOffset = (dow===0) ? -6 : (1-dow);
+      const start = new Date(anchor); start.setDate(anchor.getDate()+mondayOffset);
+      const end = new Date(start); end.setDate(start.getDate()+6);
+      return { from: start, to: end };
+    }
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const end = new Date(anchor.getFullYear(), anchor.getMonth()+1, 0);
+    return { from: start, to: end };
+  },
+
+  periodLabel(){
+    const {from,to} = this.periodBounds();
+    const fmt = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(STATE.range==='day'){
+      const y = new Date(); y.setDate(y.getDate()-1);
+      if(fmt(from)===todayISO()) return 'Bugün';
+      if(fmt(from)===fmt(y)) return 'Dün';
+      return from.getDate()+' '+this.monthsTR[from.getMonth()]+' '+from.getFullYear();
+    }
+    if(STATE.range==='week'){
+      const sameMonth = from.getMonth()===to.getMonth();
+      const left = from.getDate()+(sameMonth?'':' '+this.monthsTR[from.getMonth()]);
+      const right = to.getDate()+' '+this.monthsTR[to.getMonth()]+' '+to.getFullYear();
+      return left+' – '+right;
+    }
+    return this.monthsTR[from.getMonth()]+' '+from.getFullYear();
+  },
+
+  prevPeriod(){
+    const a = new Date(this.anchorDate);
+    if(STATE.range==='day') a.setDate(a.getDate()-1);
+    else if(STATE.range==='week') a.setDate(a.getDate()-7);
+    else a.setMonth(a.getMonth()-1);
+    this.anchorDate = a;
+    this.render();
+  },
+  nextPeriod(){
+    const a = new Date(this.anchorDate);
+    if(STATE.range==='day') a.setDate(a.getDate()+1);
+    else if(STATE.range==='week') a.setDate(a.getDate()+7);
+    else a.setMonth(a.getMonth()+1);
+    this.anchorDate = a;
+    this.render();
+  },
+
+  filtered(){
+    const active = Animals.active();
+    let mine = sortActivitiesDesc(STATE.activities.filter(a=>a.HayvanID===active?.HayvanID));
+    const {from, to} = this.periodBounds();
+    return mine.filter(a=>{ const d = parseLocalDate(a.Tarih); return d && d >= from && d <= to; });
+  },
+
+  render(){
+    if(!document.querySelector('.range-btn.bg-violet')) { this.setRange(STATE.range); return; }
+
+    document.getElementById('periodLabel').textContent = this.periodLabel();
+    const today = new Date(); today.setHours(0,0,0,0);
+    const {to} = this.periodBounds();
+    const nextBtn = document.getElementById('nextPeriodBtn');
+    nextBtn.classList.toggle('opacity-30', to >= today);
+    nextBtn.classList.toggle('pointer-events-none', to >= today);
+
+    const list = this.filtered();
+    const km = list.reduce((s,a)=>s+Number(a.MesafeKm||0),0);
+    const min = list.reduce((s,a)=>s+Number(a.SureDakika||0),0);
+    document.getElementById('rangeDistance').textContent = km.toFixed(1)+' km';
+    document.getElementById('rangeDuration').textContent = min+' dk';
+
+    const byWalker = {};
+    list.forEach(a=>{
+      const name = walkerLabel(a.GezdirenKisi);
+      byWalker[name] = byWalker[name] || {km:0,min:0,count:0};
+      byWalker[name].km += Number(a.MesafeKm||0);
+      byWalker[name].min += Number(a.SureDakika||0);
+      byWalker[name].count += 1;
+    });
+    const maxKm = Math.max(1, ...Object.values(byWalker).map(v=>v.km));
+    const colors = ['bg-violet','bg-coral','bg-sky','bg-violet-2'];
+    const wrap = document.getElementById('walkerDistribution');
+    const entries = Object.entries(byWalker);
+    wrap.innerHTML = entries.length ? entries.map(([name,v],i)=>`
+      <div>
+        <div class="flex justify-between text-xs font-semibold text-ink mb-1"><span>${name}</span><span class="tabular text-inkmut">${v.count} yürüyüş · ${v.km.toFixed(1)} km · ${v.min} dk</span></div>
+        <div class="h-2.5 bg-mist rounded-full overflow-hidden"><div class="h-full ${colors[i%colors.length]} rounded-full" style="width:${(v.km/maxKm*100).toFixed(0)}%"></div></div>
+      </div>
+    `).join('') : `<p class="text-sm text-inkmut text-center py-2">Bu aralıkta veri yok</p>`;
+
+    const fullList = document.getElementById('fullActivityList');
+    fullList.innerHTML = list.length ? list.map(a=>ActivityUI.card(a)).join('') :
+      `<div class="card p-6 text-center"><p class="text-sm text-inkmut">Bu aralıkta aktivite bulunamadı</p></div>`;
+
+    this.renderHeatmap(list);
+  },
+
+  heatMap:null, heatLayer:null,
+  renderHeatmap(list){
+    const points = [];
+    list.filter(a=>a.Tip==='Canli' && a.RotaKoordinatlari).forEach(a=>{
+      try{
+        const coords = JSON.parse(a.RotaKoordinatlari);
+        if(Array.isArray(coords)) coords.forEach(c=>{ if(Array.isArray(c) && c.length===2) points.push(c); });
+      }catch(e){}
+    });
+
+    const container = document.getElementById('heatmapContainer');
+    const empty = document.getElementById('heatmapEmpty');
+
+    if(!points.length){
+      container.classList.add('hidden');
+      empty.classList.remove('hidden');
+      return;
+    }
+    container.classList.remove('hidden');
+    empty.classList.add('hidden');
+
+    setTimeout(()=>{
+      if(!this.heatMap){
+        this.heatMap = L.map('heatmapContainer', {zoomControl:false, attributionControl:false});
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, subdomains:'abc'}).addTo(this.heatMap);
+      } else {
+        this.heatMap.invalidateSize();
+      }
+      if(this.heatLayer) this.heatMap.removeLayer(this.heatLayer);
+      this.heatLayer = L.heatLayer(points, {
+        radius: 13, blur: 24, maxZoom: 17, minOpacity: 0.18, max: 1.4,
+        gradient: {0.35:'#33C2E0', 0.65:'#9B8CFB', 1:'#FF6584'}
+      }).addTo(this.heatMap);
+      try{ this.heatLayer._canvas.style.opacity = '0.7'; }catch(e){}
+      try{
+        this.heatMap.fitBounds(L.latLngBounds(points), {padding:[24,24]});
+      }catch(e){}
+    }, 60);
+  }
+};
+
+/* ---------------- Boot ---------------- */
+async function boot(){
+  await Api.fetchAll();
+  await Queue.flush();
+  Header.render();
+  Animals.buildAvatarPicker(AVATARS[0]);
+  document.getElementById('animalForm').addEventListener('reset', ()=>{
+    setTimeout(()=>{ document.getElementById('deleteAnimalBtn').classList.add('hidden'); Animals.buildAvatarPicker(AVATARS[0]); },0);
+  });
+  Nav.go(STATE.animals.length ? 'dashboard' : 'empty');
+  setTimeout(()=>{ document.getElementById('splash').style.opacity='0'; document.getElementById('splash').style.pointerEvents='none'; setTimeout(()=>document.getElementById('splash').remove(),400); }, 550);
+}
+
+// "+" butonuna basınca formu temiz aç (edit değil, yeni ekleme akışı için)
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('button');
+  if(btn && btn.getAttribute('onclick')?.includes("open('animalFormSheet')") && !btn.closest('#animalForm')){
+    Animals.openAddForm();
+  }
+});
+
+boot();
+</script>
+</body>
+</html>
