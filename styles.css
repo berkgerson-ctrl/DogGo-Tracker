@@ -1,0 +1,78 @@
+  html,body{ background:#E7EEF1; font-family: -apple-system,"Segoe UI",system-ui,Roboto,sans-serif; }
+  * { -webkit-tap-highlight-color: transparent; }
+  ::-webkit-scrollbar{ width:0; height:0; }
+  .font-display{ font-family: ui-rounded,"SF Pro Rounded","Segoe UI Rounded",system-ui,sans-serif; }
+  .tabular{ font-variant-numeric: tabular-nums; }
+
+  .card{
+    background:#FFFFFF; border-radius: 24px;
+    box-shadow: 0 14px 32px -18px rgba(12,58,80,0.16);
+    border: 1px solid #EAF1F3;
+  }
+
+  .app-shell{
+    max-width:480px; margin:0 auto; min-height:100vh;
+    background:#F6F9FA;
+    position:relative; overflow-x:hidden;
+    box-shadow: 0 0 60px rgba(12,58,80,0.10);
+  }
+
+  .screen{ display:none; }
+  .screen.active{ display:block; }
+
+  .sheet-overlay{
+    position:fixed; inset:0; background:rgba(12,58,80,0.45);
+    z-index:60; display:none; opacity:0; transition:opacity .25s ease;
+  }
+  .sheet-overlay.show{ display:block; opacity:1; }
+
+  .bottom-sheet{
+    position:fixed; left:50%; bottom:0; transform:translate(-50%,110%);
+    width:100%; max-width:480px; background:#FFFFFF;
+    border-radius:28px 28px 0 0; z-index:61; padding:10px 20px 28px;
+    transition: transform .32s cubic-bezier(.2,.9,.25,1);
+    box-shadow: 0 -10px 40px rgba(12,58,80,0.18);
+    max-height:88vh; overflow-y:auto;
+  }
+  .bottom-sheet.show{ transform:translate(-50%,0); }
+  .sheet-handle{ width:40px; height:5px; border-radius:99px; background:#DCE6EA; margin:6px auto 14px; }
+
+  .nav-pill{
+    -webkit-mask-image: radial-gradient(circle 46px at 50% 32px, transparent 45px, black 47px);
+            mask-image: radial-gradient(circle 46px at 50% 32px, transparent 45px, black 47px);
+  }
+  .nav-icon{ color:#A9BAC2; }
+  .nav-icon.active{ color:#1689B2; }
+
+  .paw-loader{ animation: pulse-paw 1.1s ease-in-out infinite; }
+  @keyframes pulse-paw{ 0%,100%{ transform:scale(1); opacity:1;} 50%{ transform:scale(0.88); opacity:0.6;} }
+
+  .fade-in{ animation: fadeIn .35s ease both; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  .live-pulse{
+    box-shadow: 0 0 0 0 rgba(241,76,107,0.55);
+    animation: livepulse 1.8s infinite;
+  }
+  @keyframes livepulse{
+    0%{ box-shadow:0 0 0 0 rgba(241,76,107,0.5); }
+    70%{ box-shadow:0 0 0 14px rgba(241,76,107,0); }
+    100%{ box-shadow:0 0 0 0 rgba(241,76,107,0); }
+  }
+
+  input,select,textarea{ font-family: -apple-system,"Segoe UI",system-ui,Roboto,sans-serif; }
+  input:focus, select:focus, textarea:focus, button:focus-visible{
+    outline: 2px solid #1689B2; outline-offset: 2px;
+  }
+
+  #splash{ transition: opacity .4s ease; }
+  #liveMap, .mini-map{ background:#E4EBEE; }
+  .leaflet-container{ font-family: -apple-system,system-ui,sans-serif; border-radius: inherit; }
+  #liveMap.leaflet-container, .mini-map.leaflet-container{ z-index: 0 !important; }
+  /* Harita altlığını soluk gri tona çeviriyoruz; sadece taban karolar (tile-pane)
+     etkileniyor, rota çizgileri/pin'ler/heatmap katmanı (overlay-pane) renkli kalıyor. */
+  .leaflet-tile-pane{ filter: grayscale(1) contrast(0.92) brightness(1.1); opacity: 0.9; }
+
+  @media (prefers-reduced-motion: reduce){
+    .paw-loader, .live-pulse, .fade-in, .bottom-sheet{ animation:none !important; transition:none !important; }
+  }
