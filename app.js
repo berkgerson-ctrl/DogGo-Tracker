@@ -459,7 +459,7 @@ const Live = {
 
     setTimeout(()=>{
       if(!this.map){
-        this.map = L.map('liveMap', {zoomControl:false}).setView([41.015,28.979], 5);
+        this.map = L.map('liveMap', {zoomControl:false}).setView([41.3874,2.1686], 5);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, subdomains:'abc'}).addTo(this.map);
         this.polyline = L.polyline([], {color:'#F14C6B', weight:6, opacity:0.9, lineCap:'round', lineJoin:'round'}).addTo(this.map);
       } else { this.map.invalidateSize(); }
@@ -679,7 +679,7 @@ const Detail = {
         if(coords.length){
           const line = L.polyline(coords, {color:'#F14C6B', weight:5, lineCap:'round'}).addTo(m);
           m.fitBounds(line.getBounds(), {padding:[20,20]});
-        } else { m.setView([41.015,28.979], 13); }
+        } else { m.setView([41.3874,2.1686], 13); }
       }, 80);
     }
   },
@@ -859,7 +859,7 @@ const Analytics = {
    şehir koordinatına (İstanbul) düşülür. Sıcaklık/yağış/rüzgara göre basit
    bir "akıllı yürüyüş saati" önerisi üretilir. */
 const Weather = {
-  DEFAULT_COORDS: { lat: 41.015137, lon: 28.979530 },
+  DEFAULT_COORDS: { lat: 41.3874, lon: 2.1686 }, // Barselona, İspanya
 
   init(){
     this.getCoords().then(coords => this.fetchAndRender(coords));
